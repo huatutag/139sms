@@ -1,5 +1,5 @@
-# 使用官方 Python 运行时作为父镜像
-FROM python:3.9-slim
+# 使用slim版本以减小镜像体积，例如 python:3.9-slim-buster 或更新的稳定版本
+FROM python:3.9-slim-buster
 
 # 设置工作目录
 WORKDIR /app
