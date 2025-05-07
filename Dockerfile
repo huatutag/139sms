@@ -21,11 +21,13 @@ COPY 139sms.py .
 # 声明应用监听的端口 (文档性质，实际由Gunicorn绑定)
 EXPOSE 5000
 
-# 定义环境变量的默认值 (可选, 也可以改成不带SSL的端口)
+# 定义环境变量的默认值 (可选, 最好在运行时覆盖)
+# SMTP_SERVER 已在代码中硬编码为 smtp.163.com
 ENV SMTP_PORT="465"
-# EMAIL_ACCOUNT 和 EMAIL_PASSWORD 必须在 docker run 时通过 -e 传递
-# 例如: -e EMAIL_ACCOUNT="your_139_email@139.com"
-#       -e EMAIL_PASSWORD="your_auth_code"
+# 以下环境变量必须在 docker run 时通过 -e 传递:
+# ENV SENDER_163_EMAIL_ACCOUNT="your_163_email@163.com"
+# ENV SENDER_163_AUTH_CODE="your_163_auth_code" # 这是163邮箱的授权码！
+# ENV RECEIVER_EMAIL_ADDRESS="your_target_receiver_email@example.com"
 
 # 运行应用的命令 (使用 Gunicorn)
 # 139sms:app 指的是 139sms.py 文件中的 app Flask实例

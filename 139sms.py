@@ -2,57 +2,54 @@ import os
 import smtplib
 import ssl
 import logging
-import sys  # 用于在启动检查失败时打印到stderr和退出
+import sys
 from email.mime.text import MIMEText
 from email.header import Header
 from flask import Flask, request, jsonify
 
-# --- 配置信息 ---
-SMTP_SERVER = 'smtp.139.com'
-SMTP_PORT = int(os.environ.get('SMTP_PORT', 465))  # SSL端口, 仍可配置，默认为465
+# --- 配置信息 (与上一版163邮箱配置相同) ---
+SMTP_SERVER = 'smtp.163.com'
+SMTP_PORT = int(os.environ.get('SMTP_PORT', 465))
 
-# --- 环境变量强制检查 (应用启动前) ---
-# EMAIL_ACCOUNT 是必须的环境变量
-EMAIL_ACCOUNT = os.environ.get('EMAIL_ACCOUNT')
-if not EMAIL_ACCOUNT:
-    # 如果关键环境变量缺失，打印到stderr并抛出异常阻止Gunicorn等服务器启动
-    # 或者在直接运行时通过sys.exit()退出
-    critical_message = "CRITICAL: 环境变量 'EMAIL_ACCOUNT' 未设置。应用程序无法启动。"
+SENDER_163_EMAIL_ACCOUNT = os.environ.get('SENDER_163_EMAIL_ACCOUNT')
+if not SENDER_163_EMAIL_ACCOUNT:
+    critical_message = "CRITICAL: 环境变量 'SENDER_163_EMAIL_ACCOUNT' (发件人163邮箱) 未设置。应用程序无法启动。"
     print(critical_message, file=sys.stderr)
     raise RuntimeError(critical_message)
 
-# EMAIL_PASSWORD (授权码) 也是必须的环境变量
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD')
-if not EMAIL_PASSWORD:
-    critical_message = "CRITICAL: 环境变量 'EMAIL_PASSWORD' 未设置。应用程序无法启动。"
+SENDER_163_AUTH_CODE = os.environ.get('SENDER_163_AUTH_CODE')
+if not SENDER_163_AUTH_CODE:
+    critical_message = "CRITICAL: 环境变量 'SENDER_163_AUTH_CODE' (发件人163邮箱授权码) 未设置。应用程序无法启动。"
     print(critical_message, file=sys.stderr)
     raise RuntimeError(critical_message)
 
-SENDER_EMAIL = EMAIL_ACCOUNT  # 发件人邮箱
-RECEIVER_EMAIL = EMAIL_ACCOUNT  # 收件人邮箱 (发送给自己)
+RECEIVER_EMAIL_ADDRESS = os.environ.get('RECEIVER_EMAIL_ADDRESS')
+if not RECEIVER_EMAIL_ADDRESS:
+    critical_message = "CRITICAL: 环境变量 'RECEIVER_EMAIL_ADDRESS' (目标收件人邮箱) 未设置。应用程序无法启动。"
+    print(critical_message, file=sys.stderr)
+    raise RuntimeError(critical_message)
 
-# --- Flask 应用初始化 ---
+CURRENT_SENDER_EMAIL = SENDER_163_EMAIL_ACCOUNT
+CURRENT_RECEIVER_EMAIL = RECEIVER_EMAIL_ADDRESS
+
 app = Flask(__name__)
 
-# --- 日志配置 ---
-# 当通过 Gunicorn 运行时，让 Gunicorn 处理日志输出
 if __name__ != '__main__':
     gunicorn_logger = logging.getLogger('gunicorn.error')
     app.logger.handlers = gunicorn_logger.handlers
     app.logger.setLevel(gunicorn_logger.level)
 else:
-    # 如果直接运行 (例如本地测试)
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]')
     app.logger.info("直接运行脚本，使用基础日志配置。")
 
 app.logger.info(f"SMTP 服务器配置为: {SMTP_SERVER}:{SMTP_PORT}")
-app.logger.info(f"发件邮箱账户: {EMAIL_ACCOUNT}")
+app.logger.info(f"发件邮箱账户 (163): {SENDER_163_EMAIL_ACCOUNT}")
+app.logger.info(f"目标收件邮箱: {RECEIVER_EMAIL_ADDRESS}")
 
 
 @app.route('/send', methods=['POST'])
 def send_email_api():
-    # EMAIL_ACCOUNT 和 EMAIL_PASSWORD 在启动时已验证存在
     try:
         data = request.get_json()
         if not data:
@@ -60,61 +57,94 @@ def send_email_api():
             return jsonify({"error": "无效的JSON数据，请确保Content-Type为application/json"}), 400
 
         subject = data.get('邮件主题')
-        content = data.get('邮件内容')  # 如果未提供，则为 None
+        content = data.get('邮件内容')
 
         if not subject:
             app.logger.warning("API /send: 请求缺少'邮件主题'")
             return jsonify({"error": "必须提供'邮件主题'"}), 400
 
         if content is None or str(content).strip() == "":
-            content = "无内容"  # 默认内容
+            content = "无内容"
             app.logger.info("API /send: 邮件内容未提供，使用默认值 '无内容'")
 
-        # --- 构造邮件 ---
         msg = MIMEText(content, 'plain', 'utf-8')
-        msg['From'] = Header(f"通知服务 <{SENDER_EMAIL}>", 'utf-8')
-        msg['To'] = Header(RECEIVER_EMAIL, 'utf-8')
+        msg['From'] = CURRENT_SENDER_EMAIL
+        msg['To'] = Header(CURRENT_RECEIVER_EMAIL, 'utf-8')
         msg['Subject'] = Header(subject, 'utf-8')
 
-        # --- 发送邮件 ---
-        context = ssl.create_default_context()  # 使用默认的SSL上下文以增强安全性
+        context = ssl.create_default_context()
 
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, context=context) as server:
-            # server.set_debuglevel(1) # 需要详细SMTP调试信息时取消注释
-            server.login(EMAIL_ACCOUNT, EMAIL_PASSWORD)
-            server.sendmail(SENDER_EMAIL, [RECEIVER_EMAIL], msg.as_string())
+            # server.set_debuglevel(1)
+            server.login(SENDER_163_EMAIL_ACCOUNT, SENDER_163_AUTH_CODE)
+            server.sendmail(CURRENT_SENDER_EMAIL, [CURRENT_RECEIVER_EMAIL], msg.as_string())
+            # 如果sendmail没有抛出异常，邮件已被服务器接受
+            app.logger.info(
+                f"API /send: 邮件从 {CURRENT_SENDER_EMAIL} 发送到 {CURRENT_RECEIVER_EMAIL} 成功，主题: '{subject}' (sendmail命令已完成)")
 
-        app.logger.info(f"API /send: 邮件发送成功，主题: '{subject}'")
+        # 如果 'with' 块成功退出 (包括隐式的 server.quit())
+        app.logger.info("API /send: SMTP连接正常关闭。")
         return jsonify({"message": "邮件发送成功！"}), 200
 
-    except smtplib.SMTPAuthenticationError as e:
+    # --- 优化后的异常处理 ---
+
+    # 1. 明确指示邮件发送失败的SMTP错误 (在sendmail期间或之前发生)
+    except smtplib.SMTPDataError as e:  # 例如：服务器拒绝邮件内容/格式
         app.logger.error(
-            f"API /send: SMTP认证失败: {e.smtp_code} - {e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown auth error'}")
-        return jsonify({"error": "SMTP认证失败，请检查邮箱账号或授权码"}), 500
+            f"API /send: SMTP数据错误: {e.smtp_code} - {e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown data error'}")
+        error_detail = e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown data error'
+        return jsonify({"error": f"SMTP数据错误: {error_detail}"}), 500
+    except smtplib.SMTPAuthenticationError as e:  # 认证失败
+        app.logger.error(
+            f"API /send: SMTP认证失败({SENDER_163_EMAIL_ACCOUNT}): {e.smtp_code} - {e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown auth error'}")
+        return jsonify({"error": "SMTP认证失败，请检查163邮箱账号或授权码"}), 500
+    # SMTPConnectError 包含了连接阶段的多种问题，如服务器不可达、HELO/EHLO阶段错误
     except smtplib.SMTPConnectError as e:
-        app.logger.error(f"API /send: 无法连接到SMTP服务器({SMTP_SERVER}:{SMTP_PORT}): {e}")
-        return jsonify({"error": "无法连接到SMTP服务器"}), 503  # Service Unavailable
-    except smtplib.SMTPServerDisconnected as e:
-        app.logger.error(f"API /send: SMTP服务器意外断开连接: {e}")
-        return jsonify({"error": "SMTP服务器意外断开连接"}), 503
-    except ssl.SSLError as e:  # 更具体地捕获SSL错误
-        app.logger.error(f"API /send: SSL错误: {e}")
+        app.logger.error(f"API /send: 无法连接到SMTP服务器或连接设置错误({SMTP_SERVER}:{SMTP_PORT}): {e}")
+        return jsonify({"error": "无法连接到SMTP服务器或连接设置错误"}), 503
+    # 可以根据需要添加 SMTPSenderRefused, SMTPRecipientsRefused 等
+
+    # 2. 处理邮件已发送，但在关闭连接时可能发生的异常
+    except (smtplib.SMTPServerDisconnected, smtplib.SMTPResponseException) as e:
+        # 假设如果sendmail已成功（上面的日志已打印），这些是在quit()阶段的问题
+        if isinstance(e, smtplib.SMTPResponseException) and \
+                not (e.smtp_code == -1 and e.smtp_error == b'\x00\x00\x00'):
+            # 一个非预期的、非特定的“良性”SMTPResponseException
+            app.logger.error(
+                f"API /send: 发生未明确处理的SMTP响应异常（可能在quit时）: {e.smtp_code} - {e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown'}",
+                exc_info=True)
+            error_detail = e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown SMTP Response'
+            # 尽管邮件可能已发送，但这是一个未明确归类为“良性”的响应码，谨慎起见返回错误
+            return jsonify({"error": f"发送邮件时发生SMTP响应错误: {error_detail}"}), 500
+
+        # SMTPServerDisconnected 或 特定的良性 SMTPResponseException (-1, ...)
+        log_message_verb = "服务器意外断开连接" if isinstance(e, smtplib.SMTPServerDisconnected) else "服务器连接关闭时有轻微响应"
+        app.logger.warning(f"API /send: SMTP{log_message_verb} (可能在quit时，但邮件通常已发送): {e}")
+        return jsonify({"message": "邮件发送成功！"}), 200  # 统一成功消息
+
+    # 3. SSL相关错误
+    except ssl.SSLError as e:
+        app.logger.error(f"API /send: SSL错误: {e}", exc_info=True)
         return jsonify({"error": f"与邮件服务器建立安全连接时发生SSL错误: {str(e)}"}), 500
+
+    # 4. 捕获所有其他未预料的错误
     except Exception as e:
-        app.logger.error(f"API /send: 发送邮件时发生未知错误: {e}", exc_info=True)  # exc_info=True 会记录堆栈跟踪
-        return jsonify({"error": "发送邮件时发生未知错误"}), 500
+        app.logger.error(f"API /send: 发送邮件时发生未预料的错误: {e}", exc_info=True)
+        return jsonify({"error": "发送邮件时发生未预料的错误"}), 500
 
 
-# 健康检查端点
 @app.route('/health', methods=['GET'])
 def health_check():
-    # 由于EMAIL_ACCOUNT和EMAIL_PASSWORD在启动时检查，如果应用运行到这里，它们必然已设置。
-    return jsonify({"status": "healthy", "smtp_server": SMTP_SERVER, "email_account_configured": True}), 200
+    return jsonify({
+        "status": "healthy",
+        "smtp_server": SMTP_SERVER,
+        "sender_email_configured": bool(SENDER_163_EMAIL_ACCOUNT),
+        "receiver_email_configured": bool(RECEIVER_EMAIL_ADDRESS)
+    }), 200
 
 
 if __name__ == '__main__':
-    # 此部分仅用于本地开发测试。
-    # 如果EMAIL_ACCOUNT或EMAIL_PASSWORD未设置，程序在之前的检查点就会因RuntimeError退出。
     app.logger.info("尝试以Flask开发模式直接运行应用 (不推荐用于生产)。")
-    app.logger.info(f"确保环境变量 EMAIL_ACCOUNT 和 EMAIL_PASSWORD 已正确设置。")
-    app.run(host='0.0.0.0', port=5000, debug=False)  # debug=False 更接近生产环境
+    app.logger.info(
+        f"确保环境变量 SENDER_163_EMAIL_ACCOUNT, SENDER_163_AUTH_CODE, 和 RECEIVER_EMAIL_ADDRESS 已正确设置。")
+    app.run(host='0.0.0.0', port=5000, debug=False)
