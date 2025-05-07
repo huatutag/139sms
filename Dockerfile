@@ -24,11 +24,10 @@ EXPOSE 5000
 # 定义环境变量的默认值 (可选, 最好在运行时覆盖)
 # SMTP_SERVER 已在代码中硬编码为 smtp.163.com
 ENV SMTP_PORT="465"
+
 # 以下环境变量必须在 docker run 时通过 -e 传递:
-# ENV SENDER_163_EMAIL_ACCOUNT="your_163_email@163.com"
-# ENV SENDER_163_AUTH_CODE="your_163_auth_code" # 这是163邮箱的授权码！
-# ENV RECEIVER_EMAIL_ADDRESS="your_target_receiver_email@example.com"
+# ENV SENDER_ACCOUNTS_JSON='[{"email": "user1@163.com", "auth_code": "authcode1"}, {"email": "user2@163.com", "auth_code": "authcode2"}]'
+# ENV RECEIVER_EMAIL_ADDRESS="your_target_receiver_email@example.com" # 例如: "17360080651@139.com"
 
 # 运行应用的命令 (使用 Gunicorn)
-# 139sms:app 指的是 139sms.py 文件中的 app Flask实例
 CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:5000", "--log-level", "info", "--access-logfile", "-", "--error-logfile", "-", "139sms:app"]
