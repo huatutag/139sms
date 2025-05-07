@@ -22,10 +22,11 @@ COPY 139sms.py .
 EXPOSE 5000
 
 # 定义环境变量的默认值 (可选, 最好在运行时覆盖)
-# SMTP_SERVER 已在代码中硬编码为 smtp.163.com
 ENV SMTP_PORT="465"
+# ENV LOG_LEVEL="INFO" # 可选：设置应用日志级别 (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 
 # 以下环境变量必须在 docker run 时通过 -e 传递:
+# ENV API_SECRET_KEY="your_very_secret_api_key_here" # 新增：用于/send接口认证的密钥
 # ENV SENDER_ACCOUNTS_JSON='[{"email": "user1@163.com", "auth_code": "authcode1"}, {"email": "user2@163.com", "auth_code": "authcode2"}]'
 # ENV RECEIVER_EMAIL_ADDRESS="your_target_receiver_email@example.com" # 例如: "17360080651@139.com"
 
