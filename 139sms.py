@@ -140,21 +140,27 @@ def send_email_api():
             app.logger.warning(f"API /send ({current_sender_email}): 收到无效的JSON数据或Content-Type不正确")
             return jsonify({"error": "无效的JSON数据，请确保Content-Type为application/json"}), 400
 
-        subject = data.get('邮件主题')
-        content = data.get('邮件内容')
+        email_title = data.get('title')  # 邮件主题
+        email_content = data.get('content')  # 邮件内容
 
-        if not subject:
-            app.logger.warning(f"API /send ({current_sender_email}): 请求缺少'邮件主题'")
-            return jsonify({"error": "必须提供'邮件主题'"}), 400
+        if not email_title:
+            app.logger.warning(f"API /send ({current_sender_email}): 请求缺少参数 'title' (邮件主题)")
+            return jsonify({"error": "请求体中必须包含 'title' (邮件主题) 参数"}), 400
 
-        if content is None or str(content).strip() == "":
-            content = "无内容"
-            app.logger.info(f"API /send ({current_sender_email}): 邮件内容未提供，使用默认值 '无内容'")
+        final_email_body = email_content  # 允许邮件内容为空字符串
+        if email_content is None:  # 但如果完全没提供 content 字段，则使用默认值
+            final_email_body = "无内容"  # Default content
+            app.logger.info(
+                f"API /send ({current_sender_email}): 请求参数 'content' (邮件内容) 未提供，使用默认值 '无内容'")
+        elif str(email_content).strip() == "":
+            app.logger.info(f"API /send ({current_sender_email}): 请求参数 'content' (邮件内容) 为空字符串。")
+        # else: # 内容不为空，正常使用
+        # final_email_body = email_content # 已在上面赋值
 
-        msg = MIMEText(content, 'plain', 'utf-8')
+        msg = MIMEText(final_email_body, 'plain', 'utf-8')
         msg['From'] = current_sender_email
         msg['To'] = Header(RECEIVER_EMAIL_ADDRESS, 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8')
+        msg['Subject'] = Header(email_title, 'utf-8')  # 使用 email_title
 
         context = ssl.create_default_context()
 
@@ -162,12 +168,11 @@ def send_email_api():
             server.login(current_sender_email, current_sender_auth_code)
             server.sendmail(current_sender_email, [RECEIVER_EMAIL_ADDRESS], msg.as_string())
             app.logger.info(
-                f"API /send: 邮件从 {current_sender_email} 发送到 {RECEIVER_EMAIL_ADDRESS} 成功，主题: '{subject}' (sendmail命令已完成)")
+                f"API /send: 邮件从 {current_sender_email} 发送到 {RECEIVER_EMAIL_ADDRESS} 成功，主题: '{email_title}' (sendmail命令已完成)")
 
         app.logger.info(f"API /send ({current_sender_email}): SMTP连接正常关闭。")
         return jsonify({"message": "邮件发送成功！"}), 200
 
-    # ... (异常处理块与上一版相同，每个异常日志中都已包含current_sender_email) ...
     except smtplib.SMTPDataError as e:
         app.logger.error(
             f"API /send ({current_sender_email}): SMTP数据错误: {e.smtp_code} - {e.smtp_error.decode('utf-8', 'ignore') if e.smtp_error else 'Unknown data error'}")
@@ -203,17 +208,10 @@ def send_email_api():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    # API Key 验证 (可选，但通常health接口不需要严格认证，除非有特定需求)
-    # 如果需要对health接口也做key认证，取消以下注释：
-    # provided_key_health = request.args.get('key')
-    # if provided_key_health != API_SECRET_KEY:
-    #     app.logger.warning(f"API /health: 拒绝访问 - 提供的'key'无效或缺失。")
-    #     return jsonify({"error": "拒绝访问：无效或缺失的API密钥"}), 403
-
     return jsonify({
         "status": "healthy",
         "smtp_server": SMTP_SERVER,
-        "api_key_configured": bool(API_SECRET_KEY),  # 表明API Key机制是否已启用
+        "api_key_configured": bool(API_SECRET_KEY),
         "num_sender_accounts_configured": len(SENDER_ACCOUNTS_LIST),
         "receiver_email_configured": bool(RECEIVER_EMAIL_ADDRESS)
     }), 200
